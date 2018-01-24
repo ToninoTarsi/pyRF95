@@ -26,7 +26,7 @@ if os.path.getsize(ssdv_filename)/256 != 0:
 ssdv_packets = os.path.getsize(ssdv_filename)//256
 
 # Create rf95 object with CS0 and external interrupt on pin 25
-lora = rf95.RF95(0, 25)
+lora = rf95.RF95(0,0, 25)
 
 if not lora.init(): # returns True if found
     print("RF95 not found")

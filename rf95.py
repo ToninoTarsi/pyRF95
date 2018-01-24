@@ -225,9 +225,10 @@ RADIO_MODE_RX=4
 RADIO_MODE_CAD=5
 
 class RF95:
-    def __init__(self, cs=0, int_pin=25, reset_pin=None):
+    def __init__(self,port=0,cs=0,int_pin=25,reset_pin=None):
         # init class
         self.spi = spidev.SpiDev()
+        self.port = port
         self.cs = cs
         self.int_pin = int_pin
         self.reset_pin = reset_pin
@@ -243,7 +244,7 @@ class RF95:
 
     def init(self):
         # open SPI and initialize RF95
-        self.spi.open(0,self.cs)
+        self.spi.open(self.port,self.cs)
         self.spi.max_speed_hz = 488000
         self.spi.close()
 
@@ -316,26 +317,26 @@ class RF95:
 
 
     def spi_write(self, reg, data):
-        self.spi.open(0,self.cs)
+        self.spi.open(self.port,self.cs)
         # transfer one byte
         self.spi.xfer2([reg | SPI_WRITE_MASK, data])
         self.spi.close()
 
     def spi_read(self, reg):
-        self.spi.open(0,self.cs)
+        self.spi.open(self.port,self.cs)
         data = self.spi.xfer2([reg & ~SPI_WRITE_MASK, 0])
         self.spi.close()
         return data[1]
 
     def spi_write_data(self, reg, data):
-        self.spi.open(0, self.cs)
+        self.spi.open(self.port, self.cs)
         # transfer byte list
         self.spi.xfer2([reg | SPI_WRITE_MASK] + data)
         self.spi.close()
 
     def spi_read_data(self, reg, length):
         data = []
-        self.spi.open(0, self.cs)
+        self.spi.open(self.port, self.cs)
         # start address + amount of bytes to read
         data = self.spi.xfer2([reg & ~SPI_WRITE_MASK] + [0]*length)
         self.spi.close()
