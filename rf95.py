@@ -484,7 +484,7 @@ class RF95:
 
 # Example, send two strings and (uncomment to) receive and print a reply
 if __name__ == "__main__":
-    rf95 = RF95(0, 25, 22)
+    rf95 = RF95(0, 0,25, 22)
     if not rf95.init():
         print("RF95 not found")
         rf95.cleanup()
