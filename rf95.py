@@ -250,7 +250,7 @@ class RF95:
 
         # set interrupt pin
         GPIO.setmode(GPIO.BCM)
-        if (int_pin != None):
+        if (self.int_pin != None):
             GPIO.setup(self.int_pin, GPIO.IN)
             GPIO.add_event_detect(self.int_pin, GPIO.RISING, callback=self.handle_interrupt)
         
@@ -296,9 +296,12 @@ class RF95:
 
     def handle_interrupt(self, channel):
         # Read the interrupt register
+        print 'self.mode',self.mode
         irq_flags = self.spi_read(REG_12_IRQ_FLAGS)
+        print 'irq_flags',irq_flags
+        print 'self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR)',self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR)
 
-        if self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR):
+        if False: # self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR):
             self.rx_bad = self.rx_bad + 1
         elif self.mode == RADIO_MODE_RX and irq_flags & RX_DONE:
             # packet received
@@ -313,6 +316,7 @@ class RF95:
 
             # save RSSI
             self.last_rssi = self.spi_read(REG_1A_PKT_RSSI_VALUE) - 137
+            print 'self.last_rssi',self.last_rssi
             # We have received a message
             self.rx_good = self.rx_good + 1
             self.rx_buf_valid = True
@@ -454,13 +458,13 @@ class RF95:
 
     def wait_packet_sent(self):
     
-        if ( int_pin == None ):
+        if ( self.int_pin == None ):
             #If we are not currently in transmit mode, there is no packet to wait for
             if ( self.mode != RADIO_MODE_TX):
                 return False
             
-            while ( self.spi_read(REG_12_IRQ_FLAGS) & TX_DONE ):
-                pass
+            while ( not (self.spi_read(REG_12_IRQ_FLAGS) & TX_DONE )):
+                time.sleep(0.1)
             
             self.tx_good = self.tx_good + 1
             self.set_mode_idle()
@@ -468,17 +472,18 @@ class RF95:
             
         else:
             while self.mode == RADIO_MODE_TX:
-                pass
+                time.sleep(0.1)
             return True
 
     def available(self):
     
-        if ( int_pin == None ):
+        if ( self.int_pin == None ):
             # Read the interrupt register
             irq_flags = self.spi_read(REG_12_IRQ_FLAGS)
-            if ( self.mode == RHModeRx and  irq_flags & RX_DONE );
+            if ( self.mode == RADIO_MODE_RX and  (irq_flags & RX_DONE)  ):
                 #Have received a packet
                 length = self.spi_read(REG_13_RX_NB_BYTES)
+                #print length
 
                 #Reset the fifo read ptr to the beginning of the packet
                 self.spi_write(REG_0D_FIFO_ADDR_PTR, self.spi_read(REG_10_FIFO_RX_CURRENT_ADDR))
@@ -499,18 +504,16 @@ class RF95:
                 if ( self.rx_buf_valid ):
                     self.set_mode_idle()       
                 
-            elif (_mode == RADIO_MODE_CAD && irq_flags & CAD_DONE):
+            elif ( self.mode == RADIO_MODE_CAD and irq_flags & CAD_DONE):
                 self.cad = irq_flags & CAD_DETECTED
                 self.set_mode_idle()
             
             self.spi_write(REG_12_IRQ_FLAGS, 0xff) # Clear all IRQ flags
     
-    
-        else: # Interrupt Mode
-            if self.mode == RADIO_MODE_TX:
-                return False
-            self.set_mode_rx()
-            return self.rx_buf_valid
+        if self.mode == RADIO_MODE_TX:
+            return False
+        self.set_mode_rx()
+        return self.rx_buf_valid
 
     def clear_rx_buf(self):
         self.rx_buf_valid = False
