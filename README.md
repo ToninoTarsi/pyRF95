@@ -78,8 +78,10 @@ rf95.AGC_AUTO_OFF
 ```python
 import rf95
 
-# Create rf95 object with CS0 and external interrupt on pin 25
-lora = rf95.RF95(0, 25)
+# Create rf95 object on SpiDev port 0 with CS0 and external interrupt on pin 25 and no reset PIN
+lora = rf95.RF95(0,0,25,None)
+# On RaspberryPI use interrupt less mode with
+# lora = rf95.RF95(0,0,None,None)
 
 if not lora.init(): # returns True if found
 	print("RF95 not found")
@@ -90,7 +92,7 @@ else:
 # set frequency, power and mode
 lora.set_frequency(868.5)
 lora.set_tx_power(5)
-lora.set_modem_config(Bw31_25Cr48Sf512)
+lora.set_modem_config(rf95.Bw31_25Cr48Sf512)
 
 # Send some data
 lora.send([0x00, 0x01, 0x02, 0x03])

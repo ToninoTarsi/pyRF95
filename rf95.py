@@ -246,12 +246,13 @@ class RF95:
         # open SPI and initialize RF95
         self.spi.open(self.port,self.cs)
         self.spi.max_speed_hz = 488000
-        self.spi.close()
+        #self.spi.close()
 
         # set interrupt pin
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.int_pin, GPIO.IN)
-        GPIO.add_event_detect(self.int_pin, GPIO.RISING, callback=self.handle_interrupt)
+        if (int_pin != None):
+            GPIO.setup(self.int_pin, GPIO.IN)
+            GPIO.add_event_detect(self.int_pin, GPIO.RISING, callback=self.handle_interrupt)
         
         # set reset pin
         if self.reset_pin != None:
@@ -260,11 +261,24 @@ class RF95:
         # wait for reset
         time.sleep(0.05)
 
+
+        #deviceVersion = spiRead(RH_RF95_REG_42_VERSION);
+        deviceVersion = self.spi_read(REG_42_VERSION);
+        print 'deviceVersion',deviceVersion
+
         # set sleep mode and LoRa mode
-        self.spi_write(REG_01_OP_MODE, MODE_SLEEP | LONG_RANGE_MODE)
+        p = self.spi_read(REG_01_OP_MODE)
+        print 'self.spi_read(REG_01_OP_MODE)',format(p,'02x')
+        
+        print 'Writing',format((MODE_SLEEP | LONG_RANGE_MODE),'02x')
+
+
+        print 'writing',self.spi_write(REG_01_OP_MODE, MODE_SLEEP | LONG_RANGE_MODE)
         
         time.sleep(0.01)        
         # check if we are set
+        p = self.spi_read(REG_01_OP_MODE)
+        print 'Reafing back',format(p,'02x')
         if self.spi_read(REG_01_OP_MODE) != (MODE_SLEEP | LONG_RANGE_MODE):
             return False
 
@@ -317,29 +331,30 @@ class RF95:
 
 
     def spi_write(self, reg, data):
-        self.spi.open(self.port,self.cs)
+        #self.spi.open(self.port,self.cs)
         # transfer one byte
-        self.spi.xfer2([reg | SPI_WRITE_MASK, data])
-        self.spi.close()
+        p = self.spi.xfer2([reg | SPI_WRITE_MASK, data])
+        #self.spi.close()
+        return p
 
     def spi_read(self, reg):
-        self.spi.open(self.port,self.cs)
+        #self.spi.open(self.port,self.cs)
         data = self.spi.xfer2([reg & ~SPI_WRITE_MASK, 0])
-        self.spi.close()
+        #self.spi.close()
         return data[1]
 
     def spi_write_data(self, reg, data):
-        self.spi.open(self.port, self.cs)
+        #self.spi.open(self.port, self.cs)
         # transfer byte list
         self.spi.xfer2([reg | SPI_WRITE_MASK] + data)
-        self.spi.close()
+        #self.spi.close()
 
     def spi_read_data(self, reg, length):
         data = []
-        self.spi.open(self.port, self.cs)
+        #self.spi.open(self.port, self.cs)
         # start address + amount of bytes to read
         data = self.spi.xfer2([reg & ~SPI_WRITE_MASK] + [0]*length)
-        self.spi.close()
+        #self.spi.close()
         return data[1:] # all but first byte
 
     def set_frequency(self, freq):
@@ -438,15 +453,64 @@ class RF95:
         return True
 
     def wait_packet_sent(self):
-        while self.mode == RADIO_MODE_TX:
-            pass
-        return True
+    
+        if ( int_pin == None ):
+            #If we are not currently in transmit mode, there is no packet to wait for
+            if ( self.mode != RADIO_MODE_TX):
+                return False
+            
+            while ( self.spi_read(REG_12_IRQ_FLAGS) & TX_DONE ):
+                pass
+            
+            self.tx_good = self.tx_good + 1
+            self.set_mode_idle()
+            return True
+            
+        else:
+            while self.mode == RADIO_MODE_TX:
+                pass
+            return True
 
     def available(self):
-        if self.mode == RADIO_MODE_TX:
-            return False
-        self.set_mode_rx()
-        return self.rx_buf_valid
+    
+        if ( int_pin == None ):
+            # Read the interrupt register
+            irq_flags = self.spi_read(REG_12_IRQ_FLAGS)
+            if ( self.mode == RHModeRx and  irq_flags & RX_DONE );
+                #Have received a packet
+                length = self.spi_read(REG_13_RX_NB_BYTES)
+
+                #Reset the fifo read ptr to the beginning of the packet
+                self.spi_write(REG_0D_FIFO_ADDR_PTR, self.spi_read(REG_10_FIFO_RX_CURRENT_ADDR))
+                self.buf = self.spi_read_data(REG_00_FIFO, length)
+                self.buflen = length        
+                # clear IRQ flags
+                self.spi_write(REG_12_IRQ_FLAGS, 0xff)
+                
+                # Remember the RSSI of this packet
+                # his is according to the doc, but is it really correct?
+                # weakest receiveable signals are reported RSSI at about -66
+                self.last_rssi = self.spi_read(REG_1A_PKT_RSSI_VALUE) - 137
+
+                # We have received a message.
+                # validateRxBuf();  TO BE IMPLEMENTED
+                self.rx_good = self.rx_good + 1
+                self.rx_buf_valid = True
+                if ( self.rx_buf_valid ):
+                    self.set_mode_idle()       
+                
+            elif (_mode == RADIO_MODE_CAD && irq_flags & CAD_DONE):
+                self.cad = irq_flags & CAD_DETECTED
+                self.set_mode_idle()
+            
+            self.spi_write(REG_12_IRQ_FLAGS, 0xff) # Clear all IRQ flags
+    
+    
+        else: # Interrupt Mode
+            if self.mode == RADIO_MODE_TX:
+                return False
+            self.set_mode_rx()
+            return self.rx_buf_valid
 
     def clear_rx_buf(self):
         self.rx_buf_valid = False
@@ -479,7 +543,7 @@ class RF95:
         if self.reset_pin:
             GPIO.output(self.reset_pin, GPIO.LOW)
             GPIO.cleanup(self.reset_pin)
-        if self.int_pin:
+        if self.int_pin != None:
             GPIO.cleanup(self.int_pin)
 
 # Example, send two strings and (uncomment to) receive and print a reply
