@@ -258,31 +258,23 @@ class RF95:
         if self.reset_pin != None:
             GPIO.setup(self.reset_pin, GPIO.OUT)
             GPIO.output(self.reset_pin, GPIO.HIGH)
-        # wait for reset
-        time.sleep(0.05)
+            # wait for reset
+            time.sleep(0.05)
 
+        #deviceVersion = self.spi_read(REG_42_VERSION);
+        #print 'deviceVersion',deviceVersion
 
-        #deviceVersion = spiRead(RH_RF95_REG_42_VERSION);
-        deviceVersion = self.spi_read(REG_42_VERSION);
-        print 'deviceVersion',deviceVersion
-
-        # set sleep mode and LoRa mode
-        p = self.spi_read(REG_01_OP_MODE)
-        print 'self.spi_read(REG_01_OP_MODE)',format(p,'02x')
+        # set sleep mode and LoRa mode        
+        self.spi_write(REG_01_OP_MODE, MODE_SLEEP | LONG_RANGE_MODE)
         
-        print 'Writing',format((MODE_SLEEP | LONG_RANGE_MODE),'02x')
-
-
-        print 'writing',self.spi_write(REG_01_OP_MODE, MODE_SLEEP | LONG_RANGE_MODE)
-        
-        time.sleep(0.01)        
-        # check if we are set
-        p = self.spi_read(REG_01_OP_MODE)
-        print 'Reafing back',format(p,'02x')
+        time.sleep(0.01)     # Wait for sleep mode to take over from say, CAD   
+        # Check we are in sleep mode, with LORA set
         if self.spi_read(REG_01_OP_MODE) != (MODE_SLEEP | LONG_RANGE_MODE):
-            return False
+            return False # No device present?
 
-        # set up FIFO
+        # Set up FIFO
+        # We configure so that we can use the entire 256 byte FIFO for either receive
+        # or transmit, but not both at the same time
         self.spi_write(REG_0E_FIFO_TX_BASE_ADDR, 0)
         self.spi_write(REG_0F_FIFO_RX_BASE_ADDR, 0)
 
@@ -296,17 +288,15 @@ class RF95:
 
     def handle_interrupt(self, channel):
         # Read the interrupt register
-        print 'self.mode',self.mode
         irq_flags = self.spi_read(REG_12_IRQ_FLAGS)
-        print 'irq_flags',irq_flags
-        print 'self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR)',self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR)
+        #print 'irq_flags',irq_flags
 
-        if False: # self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR):
+        if self.mode == RADIO_MODE_RX and irq_flags & (RX_TIMEOUT | PAYLOAD_CRC_ERROR):
             self.rx_bad = self.rx_bad + 1
         elif self.mode == RADIO_MODE_RX and irq_flags & RX_DONE:
             # packet received
             length = self.spi_read(REG_13_RX_NB_BYTES)
-            print(length)
+            #print(length)
             # Reset the fifo read ptr to the beginning of the packet
             self.spi_write(REG_0D_FIFO_ADDR_PTR, self.spi_read(REG_10_FIFO_RX_CURRENT_ADDR))
             self.buf = self.spi_read_data(REG_00_FIFO, length)
@@ -354,7 +344,7 @@ class RF95:
         #self.spi.close()
 
     def spi_read_data(self, reg, length):
-        data = []
+        #data = []
         #self.spi.open(self.port, self.cs)
         # start address + amount of bytes to read
         data = self.spi.xfer2([reg & ~SPI_WRITE_MASK] + [0]*length)
@@ -427,7 +417,7 @@ class RF95:
         agc_auto = AGC_AUTO_OFF):
 
         self.spi_write(REG_1D_MODEM_CONFIG1, \
-            bandwidth | coding_rate | implicit_header)
+            bandwidth | coding_rate | imp_header)
         self.spi_write(REG_1E_MODEM_CONFIG2, \
             spreading_factor | continuous_tx | crc | timeout)
         self.spi_write(REG_26_MODEM_CONFIG3, \
@@ -549,42 +539,67 @@ class RF95:
         if self.int_pin != None:
             GPIO.cleanup(self.int_pin)
 
-# Example, send two strings and (uncomment to) receive and print a reply
+# Example
 if __name__ == "__main__":
-    rf95 = RF95(0, 0,25, 22)
-    if not rf95.init():
-        print("RF95 not found")
-        rf95.cleanup()
-        quit(1)
+    if (len(sys.argv) != 2):
+        print "Usage: rf95.py [tx/rx]"
+        exit()
+    if ( sys.argv[1] == "tx" ):
+        print "Testing transmition ..."
+       
+        # Create rf95 object on port 0 with CS0 and  interrupt less mode. Use lora = RF95(0,0, 25,22)  for Interup on GPIO25 and reset on GPIO22
+        lora = RF95(0,0, None,None)
+        if not lora.init(): # returns True if found
+            print("RF95 not found")
+            quit(1)
+        else:
+            print("RF95 LoRa mode ok")
+            
+        # set frequency, power and mode
+        lora.set_frequency(868)
+        #lora.set_tx_power(23)
+        #lora.set_modem_config(rf95.Bw125Cr48Sf4096)
+        
+        # Send  packets
+        i = 0
+        while (True):
+            str_packet = "packet :" + str(i)
+            i = i + 1
+            lora.send(lora.str_to_data(str_packet))
+            #lora.wait_packet_sent()
+            print("Sent packet: " + str_packet)
+            time.sleep(1)
+            lora.set_mode_idle()
+          
+       
+    elif ( sys.argv[1] == "rx" ):
+        print "Testing reception ..." 
+       
+        lora = RF95(0,0, None,None)
+        if not lora.init(): # returns True if found
+            print("RF95 not found")
+            quit(1)
+        else:
+            print("RF95 LoRa mode ok")
+       
+        lora.setModeRx();
+        
+        while (True):
+            while not lora.available():
+                time.sleep(0.1)
+            data = lora.recv()
+            str_packet = ""
+            for ch in data:
+                str_packet = str_packet + chr(ch)
+            print (str)
+            lora.set_mode_idle()
+
+           
+        
     else:
-        print("RF95 LoRa mode ok")
+        print "Bad command .. exiting"
+        exit()   
+    
+    
 
-        # set frequency and power
-    rf95.set_frequency(868.5)
-    rf95.set_tx_power(5)
-        # Custom predefined mode
-    #rf95.set_modem_config(Bw31_25Cr48Sf512)
-
-    telemetry_string2 = "$$ASHAB!4331.52N/00540.05WO0/0.020/A=154.3/V=8.12/P=1002.0/TI=21.40/TO=19.83/23-04-2016/19:52:49/GPS=43.525415N,005.667503W/SATS=7/AR=2.3/EA1IDZ test baliza APRS/SSTV ea1idz@ladecadence.net" 
-    telemetry_string = "$$ASHAB!4331.52N/00540.05WO0/0.020/A=37.2/V=7.64/P=1018.0/TI=29.50/TO=26.94/23-04-2016/19:52:49/GPS=43.525415N,005.667503W/SATS=4/AR=1.5/EA1IDZ test baliza APRS/SSTV ea1idz@ladecadence.net"   
-
-    #print("Sending...")
-    #rf95.send(rf95.str_to_data(telemetry_string))
-    #rf95.wait_packet_sent()
-    #print("Sent!")
-    #time.sleep(5);
-    #rf95.send(rf95.str_to_data(telemetry_string2))
-    #rf95.wait_packet_sent()
-    #print("Sent!")
-
-    # now wait for reply
-        #while not rf95.available():
-    #   pass
-    #data = rf95.recv()
-    #print (data)
-    #for i in data:
-    #   print(chr(i), end="")
-    #print()
-    rf95.set_mode_idle()
-    rf95.cleanup()
 
