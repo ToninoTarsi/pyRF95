@@ -563,7 +563,7 @@ if __name__ == "__main__":
         # Send  packets
         i = 0
         while (True):
-            str_packet = "packet :" + str(i)
+            str_packet = "$SW,1,349,3,89,33.0,70.0,47,48,950,0*" + str(i)
             i = i + 1
             lora.send(lora.str_to_data(str_packet))
             #lora.wait_packet_sent()
@@ -582,7 +582,6 @@ if __name__ == "__main__":
         else:
             print("RF95 LoRa mode ok")
        
-        lora.setModeRx();
         
         while (True):
             while not lora.available():
@@ -591,7 +590,7 @@ if __name__ == "__main__":
             str_packet = ""
             for ch in data:
                 str_packet = str_packet + chr(ch)
-            print (str)
+            print (str_packet)
             lora.set_mode_idle()
 
            
