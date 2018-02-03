@@ -193,9 +193,9 @@ SPREADING_FACTOR_2048CPS=0xb0
 SPREADING_FACTOR_4096CPS=0xc0
 TX_CONTINUOUS_MODE_ON=0x08
 TX_CONTINUOUS_MODE_OFF=0x00
-RX_PAYLOAD_CRC_ON=0x02
+RX_PAYLOAD_CRC_ON=0x04
 RX_PAYLOAD_CRC_OFF=0x00
-SYM_TIMEOUT_MSB=0x03
+SYM_TIMEOUT_MSB=0x00
 
 # REG_26_MODEM_CONFIG3
 AGC_AUTO_ON=0x04
@@ -409,20 +409,38 @@ class RF95:
     def set_modem_config_custom(self, \
         bandwidth = BW_125KHZ, \
         coding_rate = CODING_RATE_4_5, \
-        imp_header = IMPLICIT_HEADER_MODE_OFF, \
+        imp_header = IMPLICIT_HEADER_MODE_ON, \
         spreading_factor = SPREADING_FACTOR_128CPS, \
         crc = RX_PAYLOAD_CRC_ON, \
         continuous_tx = TX_CONTINUOUS_MODE_OFF, \
         timeout = SYM_TIMEOUT_MSB, \
         agc_auto = AGC_AUTO_OFF):
 
-        self.spi_write(REG_1D_MODEM_CONFIG1, \
-            bandwidth | coding_rate | imp_header)
-        self.spi_write(REG_1E_MODEM_CONFIG2, \
-            spreading_factor | continuous_tx | crc | timeout)
-        self.spi_write(REG_26_MODEM_CONFIG3, \
-            agc_auto)
+        self.spi_write(REG_1D_MODEM_CONFIG1, bandwidth | coding_rate | imp_header)
+        self.spi_write(REG_1E_MODEM_CONFIG2, spreading_factor | continuous_tx | crc | timeout)
+        self.spi_write(REG_26_MODEM_CONFIG3, agc_auto)
+#         print "REG_1D_MODEM_CONFIG1 " , format((bandwidth | coding_rate | imp_header), '#04X')
+#         print "REG_1E_MODEM_CONFIG2 " , format(( spreading_factor | continuous_tx | crc | timeout), '#04X')
+#         print "REG_26_MODEM_CONFIG3 " , format(agc_auto, '#04X')
+        
+    
+    # set simplifiend custom mode    
+    def set_modem_config_simple(self, \
+        BW = BW_125KHZ, \
+        CR = CODING_RATE_4_5, \
+        SF = SPREADING_FACTOR_128CPS):
+        
+        self.set_modem_config_custom(bandwidth = BW, \
+            coding_rate = CR, \
+            imp_header = IMPLICIT_HEADER_MODE_ON, \
+            spreading_factor = SF, \
+            crc = RX_PAYLOAD_CRC_ON, \
+            continuous_tx = TX_CONTINUOUS_MODE_OFF, \
+            timeout = SYM_TIMEOUT_MSB, \
+            agc_auto = AGC_AUTO_OFF)
 
+       
+        
     def set_preamble_length(self, length):
         self.spi_write(REG_20_PREAMBLE_MSB, length >> 8)
         self.spi_write(REG_21_PREAMBLE_LSB, length & 0xff)
@@ -457,6 +475,10 @@ class RF95:
                 time.sleep(0.1)
             
             self.tx_good = self.tx_good + 1
+            
+            # clear IRQ flags
+            self.spi_write(REG_12_IRQ_FLAGS, 0xff)
+            
             self.set_mode_idle()
             return True
             
@@ -533,6 +555,7 @@ class RF95:
 
     # cleans all GPIOs, etc
     def cleanup(self):
+        self.spi.close()
         if self.reset_pin:
             GPIO.output(self.reset_pin, GPIO.LOW)
             GPIO.cleanup(self.reset_pin)
@@ -544,29 +567,30 @@ if __name__ == "__main__":
     if (len(sys.argv) != 2):
         print "Usage: rf95.py [tx/rx]"
         exit()
+        
+    # Create rf95 object on port 0 with CS0 and  interrupt less mode. Use lora = RF95(0,0, 25,22)  for Interup on GPIO25 and reset on GPIO22
+    lora = RF95(0,0, None,None)
+    if not lora.init(): # returns True if found
+        print("RF95 not found")
+        quit(1)
+    else:
+        print("RF95 LoRa mode ok")
+        
+    # set frequency, power and mode
+    lora.set_frequency(868)
+    #lora.set_tx_power(23)
+    lora.set_modem_config(Bw125Cr48Sf4096)        
+        
     if ( sys.argv[1] == "tx" ):
         print "Testing transmition ..."
        
-        # Create rf95 object on port 0 with CS0 and  interrupt less mode. Use lora = RF95(0,0, 25,22)  for Interup on GPIO25 and reset on GPIO22
-        lora = RF95(0,0, None,None)
-        if not lora.init(): # returns True if found
-            print("RF95 not found")
-            quit(1)
-        else:
-            print("RF95 LoRa mode ok")
-            
-        # set frequency, power and mode
-        lora.set_frequency(868)
-        #lora.set_tx_power(23)
-        #lora.set_modem_config(rf95.Bw125Cr48Sf4096)
-        
         # Send  packets
         i = 0
         while (True):
-            str_packet = "$SW,1,349,3,89,33.0,70.0,47,48,950,0*" + str(i)
+            str_packet = "$TEST,1,349,3,89,33.0,70.0,47,48,950,0*" + str(i)
             i = i + 1
             lora.send(lora.str_to_data(str_packet))
-            #lora.wait_packet_sent()
+            lora.wait_packet_sent()
             print("Sent packet: " + str_packet)
             time.sleep(1)
             lora.set_mode_idle()
@@ -575,14 +599,6 @@ if __name__ == "__main__":
     elif ( sys.argv[1] == "rx" ):
         print "Testing reception ..." 
        
-        lora = RF95(0,0, None,None)
-        if not lora.init(): # returns True if found
-            print("RF95 not found")
-            quit(1)
-        else:
-            print("RF95 LoRa mode ok")
-       
-        
         while (True):
             while not lora.available():
                 time.sleep(0.1)
@@ -590,7 +606,7 @@ if __name__ == "__main__":
             str_packet = ""
             for ch in data:
                 str_packet = str_packet + chr(ch)
-            print (str_packet)
+            print 'RSSI: ' + str(lora.last_rssi) + ' Message: ' + str_packet
             lora.set_mode_idle()
 
            
