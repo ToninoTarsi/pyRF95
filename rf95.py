@@ -322,7 +322,13 @@ class RF95:
     
         self.spi_write(REG_12_IRQ_FLAGS, 0xff) # Clear all IRQ flags
 
-
+    def reset(self):
+        if self.reset_pin != None:
+            GPIO.output(self.reset_pin, GPIO.LOW)
+            time.sleep(0.05)
+            GPIO.output(self.reset_pin, GPIO.HIGH)
+            # wait for reset
+            time.sleep(0.05)
 
     def spi_write(self, reg, data):
         #self.spi.open(self.port,self.cs)
